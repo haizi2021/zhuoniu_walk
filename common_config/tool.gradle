@@ -1,0 +1,196 @@
+
+
+rootProject.ext.outputDateStr = new Date().format('yyyyMMddHHmm')
+rootProject.ext.outputFileName = "${rootProject.ext.appName}-release-${rootProject.ext.versionName}-${rootProject.ext.versionCode}-${rootProject.ext.outputDateStr}"
+
+def checkBuild() {
+    if (rootProject.ext.appName == ""
+            || rootProject.ext.applicationId == ""
+            || rootProject.ext.versionName == ""
+            || rootProject.ext.versionCode == 0) {
+        def sample = "需要在工程根目录build.gradle中定义appName/applicationId/versionName/versionCode: \n \
+ext { \n \
+      appName = 'app' \n \
+      applicationId = 'com.test.sample' \n \
+      versionName = '1.0' \n \
+      versionCode = 1 \n \
+      flurryApiKey = 'example_key' \n \
+} \n \
+然后在app/build.gradle文件中修改 \n \
+android {\n \
+     defaultConfig {\n \
+        applicationId rootProject.ext.applicationId\n \
+        versionName rootProject.ext.versionName\n \
+        versionCode rootProject.ext.versionCode\n \
+     }\n \
+}\n"
+        throw new GradleException("\n" + sample)
+    }
+
+    /*if (android.defaultConfig.targetSdkVersion.mApiLevel != 22) {
+        //      umeng 提示：
+//      andriod 6.0之后，设备信息部分获取有所变动，请参考官网：
+//      https://developer.android.com/training/permissions/requesting.html
+//      小技巧：当xml中的targetSdkVersion=x(x<23)时候, 可以正常获取信息(相当于跳过了6.0权限检查)
+//            targetSdkVersion 22
+        throw new GradleException("建议使用targetSdkVersion 22, 当前版本：" + android.defaultConfig.targetSdkVersion.mApiLevel)
+    }*/
+}
+
+//修改生成的apk名字
+//android.applicationVariants.all { variant ->
+//    variant.outputs.each { output ->
+//        def outputFile = output.outputFile
+//
+//        if (output.getName().equals("release") && outputFile != null && outputFile.name.endsWith('.apk')) {
+//
+//            String newName = "${rootProject.ext.outputFileName}.apk"
+//            output.outputFile = new File(outputFile.parent, newName)
+//        }
+//    }
+//}
+// 以下是gradle3.0.0使用的方式，修改输出文件名，由于其他插件暂不支持3.0.0版本
+android.applicationVariants.all { variant ->
+    //这个修改输出的APK路径
+//        variant.getPackageApplication().outputDirectory = new File(project.rootDir.absolutePath + "/apk")
+    variant.getPackageApplication().outputScope.apkDatas.forEach { apkData ->
+        //这个修改输出APK的文件名
+        apkData.outputFileName = "${outputFileName}.apk"
+    }
+}
+
+preBuild {
+    doFirst {
+        checkBuild()
+    }
+}
+
+def savePathFile = project.buildDir.path + File.separator + "LastApkName.txt"
+
+task makeProguardWords(type: Exec, description: 'start make proguard words...') {
+    workingDir '.'
+    commandLine 'python', "make-words.py"
+}
+
+task buildReleaseMove(type: Copy, dependsOn: [/*'makeProguardWords',*/ 'assembleRelease']) {
+    from('build/outputs/apk/release') {
+        include("${rootProject.ext.outputFileName}.apk")
+    }
+    from('build/outputs/mapping/release/') {
+        include("mapping.txt")
+    }
+    into(new File(getRootDir().absolutePath, "out/${rootProject.ext.outputFileName}"))
+}
+
+task buildReleaseResguard(type: Copy, dependsOn: ["buildReleaseMove", "resguardRelease"]) {
+    from('build/outputs/apk/release') {
+        include("AndResGuard_${rootProject.ext.outputFileName}/${rootProject.ext.outputFileName}_7zip_aligned_signed.apk")
+    }
+    from('build/outputs/apk/release') {
+        include("AndResGuard_${rootProject.ext.outputFileName}/resource_mapping_${rootProject.ext.outputFileName}.txt")
+    }
+    into(new File(getRootDir().absolutePath, "out/${rootProject.ext.outputFileName}"))
+
+    doLast {
+        File pathFile = file(savePathFile)
+        if (!pathFile.exists()) {
+            pathFile.createNewFile()
+        }
+        FileWriter fileWriter = new FileWriter(pathFile)
+        fileWriter.write("${rootProject.ext.outputFileName}")
+        fileWriter.close()
+    }
+}
+
+task sendmail(type: Exec, description: 'upload to ftp & send mail...') {
+    workingDir project.rootDir
+
+    // gradle sendmail -Papkpath="/apkpath/abc.apk"
+
+    def outputFilePath = ''
+    def currentAppName = ''
+    def buildType = ''
+    def currentVersionName = ''
+    def currentVersionCode = ''
+    def currentOutputFileDate = ''
+    def commitCount = project.hasProperty('commitCount') ? project.commitCount : 10
+    if (project.hasProperty('apkpath')) {
+        //..AndResGuard_PhotoEditor-release-1.06.01-13-201711072020\PhotoEditor-release-1.06.01-13-201711072020_signed_7zip_aligned.apk
+        File apkFile = new File(project.apkpath)
+        if (apkFile.exists() && apkFile.file) {
+            def cols = apkFile.name.split('-|_')
+            //[PhotoEditor, release, 1.06.01, 13, 201711072020, signed, 7zip, aligned.apk]
+
+            currentAppName = cols[0] + "(${rootProject.ext.applicationId})"
+            buildType = cols[1]
+            currentVersionName = cols[2]
+            currentVersionCode = cols[3]
+            currentOutputFileDate = cols[4]
+            outputFilePath = project.apkpath
+        } else {
+            throw new FileNotFoundException("[${project.apkpath}] <<<<< no exists or no file >>>>>")
+        }
+    } else if (project.hasProperty('last')) {
+        File apkPathFile = file(savePathFile)
+
+        if (apkPathFile.exists() && apkPathFile.file) {
+            def fileName = apkPathFile.readLines().get(0)
+            def cols = fileName.split('-|_')
+            //[PhotoEditor, release, 1.06.01, 13, 201711072020, signed, 7zip, aligned.apk]
+
+            currentAppName = cols[0] + "(${rootProject.ext.applicationId})"
+            buildType = cols[1]
+            currentVersionName = cols[2]
+            currentVersionCode = cols[3]
+            currentOutputFileDate = cols[4]
+            outputFilePath = new File(getRootDir().absolutePath, "out/" + fileName + "/AndResGuard_" + fileName + "/" + fileName + "_7zip_aligned_signed.apk")
+            println(outputFilePath)
+            println(cols)
+        } else {
+            throw new FileNotFoundException("["+ savePathFile + "] <<<<< no exists or no file >>>>>")
+        }
+    } else {
+        currentAppName = "${appName}"
+        currentVersionName = "${rootProject.ext.versionName}"
+        currentVersionCode = "${rootProject.ext.versionCode}"
+        currentOutputFileDate = "${outputDateStr}"
+        buildType = "release"
+        outputFilePath = new File(getRootDir().absolutePath, "out/${rootProject.ext.outputFileName}/AndResGuard_${rootProject.ext.outputFileName}/${rootProject.ext.outputFileName}_7zip_aligned_signed.apk")
+    }
+
+    commandLine 'python', "apkbuilder/make.py",
+            "-r", "${project.rootDir}",
+            "-n", "${currentAppName}",
+            "-t", "${buildType}",
+            "-v", "${currentVersionName}",
+            "-c", "${currentVersionCode}",
+            "-d", "${currentOutputFileDate}",
+            "-p", "${outputFilePath}",
+            "--commitCount=${commitCount}"
+}
+
+
+task buildReleaseResguardSendmail(dependsOn:
+        [/*'makeProguardWords',*/ "buildReleaseResguard", "sendmail"]) {
+
+}
+
+task buildReleaseResguardInstall(type: Exec, dependsOn: [/*'makeProguardWords',*/ "buildReleaseResguard"]) {
+    def outputFilePath = new File(getRootDir().absolutePath, "out/${rootProject.ext.outputFileName}/AndResGuard_${rootProject.ext.outputFileName}/${rootProject.ext.outputFileName}_7zip_aligned_signed.apk")
+
+    commandLine 'adb', "install", "-r", "\"${outputFilePath}\""
+}
+
+task install(type: Exec) {
+    File apkPathFile = file(savePathFile)
+    if (apkPathFile.exists() && apkPathFile.file) {
+        def fileName = apkPathFile.readLines().get(0)
+        def outputFilePath = new File(getRootDir().absolutePath, "out/" + fileName + "/AndResGuard_" + fileName + "/" + fileName + "_7zip_aligned_signed.apk")
+
+        commandLine 'adb', "install", "-r", "\"${outputFilePath}\""
+    }
+}
+
+//if (rootProject.ext.supportFirebaseAds) {
+//    apply plugin: 'com.google.gms.google-services'
+//}

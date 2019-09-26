@@ -1,0 +1,144 @@
+apply plugin: 'com.android.application'
+apply plugin: 'com.android.application'
+apply from: "../common_config/tool.gradle"
+apply plugin: 'AndResGuard'
+
+android {
+    compileSdkVersion rootProject.ext.compileSdkVersion
+    defaultConfig {
+        applicationId rootProject.ext.applicationId
+        minSdkVersion rootProject.ext.minSdkVersion
+        targetSdkVersion rootProject.ext.targetSdkVersion
+        versionCode rootProject.ext.versionCode
+        versionName rootProject.ext.versionName
+        testInstrumentationRunner "android.support.test.runner.AndroidJUnitRunner"
+        multiDexEnabled true
+
+        ndk {
+            abiFilters 'armeabi-v7a', 'arm64-v8a'
+        }
+
+        javaCompileOptions {
+            annotationProcessorOptions {
+                includeCompileClasspath = true
+            }
+        }
+    }
+
+    lintOptions {
+        checkReleaseBuilds false
+    }
+
+    dexOptions {
+        preDexLibraries true
+        javaMaxHeapSize "4g"
+    }
+
+    signingConfigs {
+        release {
+            try {
+                storeFile file(RELEASE_STORE_FILE)
+                storePassword KEYSTORE_PASSWORD
+                keyAlias RELEASE_KEY_ALIAS
+                keyPassword KEY_PASSWORD
+            }
+            catch (ex) {
+                throw new InvalidUserDataException("You should define KEYSTORE_PASSWORD and KEY_PASSWORD in gradle.properties.")
+            }
+        }
+    }
+
+    buildTypes {
+        debug_release {
+            multiDexKeepFile file('multidex-config.txt')
+            debuggable true
+            minifyEnabled true
+            shrinkResources true
+            signingConfig signingConfigs.release
+            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+        }
+        release {
+            multiDexKeepFile file('multidex-config.txt')
+            shrinkResources true
+            debuggable false
+            minifyEnabled true
+            signingConfig signingConfigs.release
+            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            println("*************************************")
+            println getProguardFiles().toString()
+            println("*************************************")
+        }
+        debug {
+            multiDexKeepFile file('multidex-config.txt')
+            debuggable true
+//            minifyEnabled true
+//            shrinkResources true
+            signingConfig signingConfigs.release
+//            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+}
+
+repositories {
+    mavenCentral()
+    maven {
+        url "https://maven.google.com"
+
+    }
+    maven {
+        url 'http://maven.aliyun.com/nexus/content/groups/public/'
+    }
+    flatDir {
+        dirs 'libs'
+    }
+}
+
+andResGuard {
+    mappingFile = null
+    use7zip = true
+    useSign = true
+    keepRoot = false
+
+    whiteList = [
+            "R.drawable.s*",
+            "R.integer.plugin_version_*",
+            "R.integer.plugin_display_*",
+            // gms相关，否则firebase无法初始化
+            "R.string.google_*",
+            "R.string.default_web_client_id",
+            "R.string.firebase_database_url",
+            "R.string.gcm_defaultSenderId",
+            "R.drawable.oldify_*",
+            "R.raw.oldify_*",
+    ] + rootProject.ext.andResGuardWhiteList
+
+    compressFilePattern = [
+            "*.png",
+            "*.jpg",
+            "*.jpeg",
+            "*.gif",
+            "resources.arsc"
+    ]
+
+    sevenzip {
+        artifact = 'com.tencent.mm:SevenZip:1.1.16'
+    }
+}
+
+dependencies {
+    implementation fileTree(dir: 'libs', include: ['*.jar'])
+    api(name: "ProcessDaemonSdk-${rootProject.ext.ProcessDaemonSdkVersion}", ext: 'aar')
+    implementation 'com.android.support:appcompat-v7:28.0.0'
+    implementation 'com.android.support.constraint:constraint-layout:1.1.3'
+    implementation 'com.gyf.immersionbar:immersionbar:2.3.3'
+    implementation 'org.greenrobot:eventbus:3.1.1'
+
+    testImplementation 'junit:junit:4.12'
+    androidTestImplementation 'com.android.support.test:runner:1.0.2'
+    androidTestImplementation 'com.android.support.test.espresso:espresso-core:3.0.2'
+}

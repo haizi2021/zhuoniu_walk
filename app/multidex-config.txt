@@ -1,0 +1,5 @@
+com/photolab/camera/preference/MultiProcessSharedPreferences$EditorImpl.class
+com/photolab/camera/preference/MultiProcessSharedPreferences$ReflectionUtil.class
+com/photolab/camera/preference/MultiProcessSharedPreferences$BundleCursor.class
+com/photolab/camera/preference/MultiProcessSharedPreferences$SPChangeReceiver.class
+
